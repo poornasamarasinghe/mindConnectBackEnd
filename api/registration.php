@@ -3,6 +3,7 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE");
 header("Access-Control-Allow-Headers: *");
+require_once __DIR__ . '/../Utilities/AzureHelper.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -20,6 +21,7 @@ try {
         $user_type = $_POST['usertype'] ?? '';
         $password = $_POST['password'] ?? '';
         $confirmpassword = $_POST['confirmpassword'] ?? '';
+        $verificationDocumentUrl = null;
 
         if (empty($username) || empty($email) || empty($user_type) || empty($password) || empty($confirmpassword)) {
             echo json_encode(["success" => false, "message" => "All fields are required."]);
@@ -57,22 +59,28 @@ try {
             }
 
             $file = $_FILES['verification_document'];
-            $targetDir = $_SERVER['DOCUMENT_ROOT'] . "/mindConnect/uploads/";
-            if (!file_exists($targetDir)) mkdir($targetDir, 0755, true);
+            $filename = $email . "." . basename($file["name"]);
 
-            $filename = time() . "_" . basename($file["name"]);
-            $targetFile = $targetDir . $filename;
-
+            // Validate file extension
             if (strtolower(pathinfo($filename, PATHINFO_EXTENSION)) !== "pdf") {
                 echo json_encode(["success" => false, "message" => "Only PDF documents allowed."]);
                 return;
             }
 
-            if (!move_uploaded_file($file["tmp_name"], $targetFile)) {
-                echo json_encode(["success" => false, "message" => "Document upload failed."]);
+            // Upload to Azure Blob Storage
+            $azure = new AzureHelper();
+            $containerName = "verifictiondocuments";
+            $uploadResult = $azure->uploadFile($containerName, $file["tmp_name"], $filename);
+
+            if (!$uploadResult['success']) {
+                echo json_encode(["success" => false, "message" => "Document upload failed: " . $uploadResult['message']]);
                 return;
             }
+
+            // Get the blob URL
+            $verificationDocumentUrl = $uploadResult['url'];
         }
+
 
         // Account status logic
         $account_status = ($user_type === "normal") ? "verified" : "pending";
@@ -85,6 +93,17 @@ try {
             echo json_encode(["success" => true, "message" => "Registration successful."]);
         } else {
             echo json_encode(["success" => false, "message" => "Failed to register."]);
+        }
+        $userId = $stmt->insert_id;
+        $stmt->close();
+
+        if (!empty($verificationDocumentUrl)) {
+            $stmt = $conn->prepare("
+        INSERT INTO verification_documents (user_id, file_path) 
+        VALUES (?, ?)");
+            $stmt->bind_param("is", $userId, $verificationDocumentUrl);
+            $stmt->execute();
+            $stmt->close();
         }
 
         $conn->close();
