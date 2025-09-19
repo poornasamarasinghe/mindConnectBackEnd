@@ -17,12 +17,14 @@ try {
         $conn = (new DbConnection())->getConnection();
 
         $username = $_POST['username'] ?? '';
+        $display_name = $_POST['displayname'] ?? ''; // new field
         $email = $_POST['email'] ?? '';
         $user_type = $_POST['usertype'] ?? '';
         $password = $_POST['password'] ?? '';
         $confirmpassword = $_POST['confirmpassword'] ?? '';
         $verificationDocumentUrl = null;
 
+        // Basic validation
         if (empty($username) || empty($email) || empty($user_type) || empty($password) || empty($confirmpassword)) {
             echo json_encode(["success" => false, "message" => "All fields are required."]);
             return;
@@ -38,6 +40,12 @@ try {
             return;
         }
 
+        // If doctor/counsellor, display name is required
+        if (in_array($user_type, ['doctor', 'counsellor']) && empty($display_name)) {
+            echo json_encode(["success" => false, "message" => "Display name is required for professionals."]);
+            return;
+        }
+
         // Check for existing email
         $checkEmail = $conn->prepare("SELECT user_id FROM user WHERE email = ?");
         $checkEmail->bind_param("s", $email);
@@ -47,6 +55,7 @@ try {
             echo json_encode(["success" => false, "message" => "Email already exists."]);
             return;
         }
+        $checkEmail->close();
 
         // Password hashing
         $password_hash = password_hash($password, PASSWORD_DEFAULT);
@@ -69,7 +78,7 @@ try {
 
             // Upload to Azure Blob Storage
             $azure = new AzureHelper();
-            $containerName = "verifictiondocuments";
+            $containerName = "verifictiondocuments"; // ensure correct name
             $uploadResult = $azure->uploadFile($containerName, $file["tmp_name"], $filename);
 
             if (!$uploadResult['success']) {
@@ -77,37 +86,43 @@ try {
                 return;
             }
 
-            // Get the blob URL
             $verificationDocumentUrl = $uploadResult['url'];
         }
-
 
         // Account status logic
         $account_status = ($user_type === "normal") ? "verified" : "pending";
 
-        // Insert into DB
+        // Insert into user table
         $stmt = $conn->prepare("INSERT INTO user (username, email, password_hash, user_type, account_status, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->bind_param("sssss", $username, $email, $password_hash, $user_type, $account_status);
 
-        if ($stmt->execute()) {
-            echo json_encode(["success" => true, "message" => "Registration successful."]);
-        } else {
-            echo json_encode(["success" => false, "message" => "Failed to register."]);
+        if (!$stmt->execute()) {
+            echo json_encode(["success" => false, "message" => "Failed to register user."]);
+            return;
         }
+
         $userId = $stmt->insert_id;
         $stmt->close();
 
-        if (!empty($verificationDocumentUrl)) {
-            $stmt = $conn->prepare("
-        INSERT INTO verification_documents (user_id, file_path) 
-        VALUES (?, ?)");
-            $stmt->bind_param("is", $userId, $verificationDocumentUrl);
+        // Insert into doctor/counsellor tables with display_name
+        if ($user_type === "doctor" && !empty($verificationDocumentUrl)) {
+            $stmt = $conn->prepare("INSERT INTO doctor (user_id, verification_document, verification_remarks, display_name) VALUES (?, ?, NULL, ?)");
+            $stmt->bind_param("iss", $userId, $verificationDocumentUrl, $display_name);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        if ($user_type === "counsellor" && !empty($verificationDocumentUrl)) {
+            $stmt = $conn->prepare("INSERT INTO counsellor (user_id, verification_document, verification_remarks, display_name) VALUES (?, ?, NULL, ?)");
+            $stmt->bind_param("iss", $userId, $verificationDocumentUrl, $display_name);
             $stmt->execute();
             $stmt->close();
         }
 
         $conn->close();
+
+        echo json_encode(["success" => true, "message" => "Registration successful."]);
     }
 } catch (Exception $err) {
-    echo json_encode($err->getMessage());
+    echo json_encode(["success" => false, "message" => $err->getMessage()]);
 }

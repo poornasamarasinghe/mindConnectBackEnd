@@ -1,54 +1,40 @@
 <?php
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: *");
+
 require_once '../database/dbconnection.php';
 
-header("Access-Control-Allow-Origin: *"); // or restrict to your frontend origin
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type");
-
-
-// Get request body
-$data = json_decode(file_get_contents("php://input"), true);
-$user_id = intval($data['user_id'] ?? 0);
-
-if (!$user_id) {
-    echo json_encode(["status" => "error", "message" => "Invalid user_id"]);
-    exit;
-}
-
 try {
-    $db = new DbConnection();
-    $conn = $db->getConnection();
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $conn = (new DbConnection())->getConnection();
 
-    if (!$conn) {
-        echo json_encode(["status" => "error", "message" => "Database connection failed"]);
-        exit;
+        $user_id = $_POST['user_id'] ?? null;
+
+        if (!$user_id) {
+            echo json_encode(["success" => false, "message" => "User ID required."]);
+            return;
+        }
+
+        $stmt = $conn->prepare("SELECT post_id, title, content, category,post_file_url, created_at FROM post WHERE user_id = ? ORDER BY created_at DESC");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $posts = [];
+        while ($row = $result->fetch_assoc()) {
+            $posts[] = $row;
+        }
+
+        $stmt->close();
+        $conn->close();
+
+        echo json_encode([
+            "success" => true,
+            "posts" => $posts
+        ]);
     }
-
-    // ✅ Select only the logged-in user's posts
-    $sql = "SELECT post_id, title, content, category, created_at 
-            FROM Post 
-            WHERE user_id = ? 
-            ORDER BY created_at DESC";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    $posts = [];
-    while ($row = $result->fetch_assoc()) {
-        $posts[] = $row;
-    }
-
-    if (count($posts) > 0) {
-        echo json_encode(["status" => "success", "posts" => $posts]);
-    } else {
-        echo json_encode(["status" => "success", "posts" => [], "message" => "No posts found"]);
-    }
-
-    $stmt->close();
-    $conn->close();
-
-} catch (Exception $e) {
-    echo json_encode(["status" => "error", "message" => $e->getMessage()]);
+} catch (Exception $err) {
+    echo json_encode(["success" => false, "message" => $err->getMessage()]);
 }

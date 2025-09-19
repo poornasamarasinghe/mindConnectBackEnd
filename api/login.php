@@ -26,13 +26,13 @@ if (empty($email) || empty($password)) {
 }
 
 // Fetch user from database
-$stmt = $conn->prepare("SELECT user_id, password_hash FROM user WHERE email = ?");
+$stmt = $conn->prepare("SELECT user_id, user_type,password_hash FROM user WHERE email = ?");
 $stmt->bind_param("s", $email);
 $stmt->execute();
 $stmt->store_result();
 
 if ($stmt->num_rows >= 1) {
-    $stmt->bind_result($userId, $storedPasswordHash);
+    $stmt->bind_result($userId, $usertype,$storedPasswordHash);
     $stmt->fetch();
 
     // Verify password
@@ -40,7 +40,8 @@ if ($stmt->num_rows >= 1) {
         echo json_encode([
             "success" => true,
             "message" => "Login successful.",
-            "user_id" => $userId
+            "user_id" => $userId,
+            "user_type"=> $usertype
         ]);
     } else {
         echo json_encode([
