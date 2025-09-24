@@ -17,7 +17,22 @@ try {
             return;
         }
 
-        $stmt = $conn->prepare("SELECT post_id, title, content, category,post_file_url, created_at FROM post WHERE user_id = ? ORDER BY created_at DESC");
+        // Select all necessary columns including font, background color, and font size
+        $stmt = $conn->prepare("
+            SELECT 
+                post_id, 
+                title, 
+                content, 
+                category, 
+                post_file_url, 
+                font, 
+                bg_color, 
+                font_size, 
+                created_at 
+            FROM post 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC
+        ");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
         $result = $stmt->get_result();

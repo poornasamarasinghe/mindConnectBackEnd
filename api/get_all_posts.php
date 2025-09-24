@@ -9,7 +9,7 @@ require_once '../database/dbconnection.php';
 try {
     $conn = (new DbConnection())->getConnection();
 
-    // Fetch all posts randomly
+    // Fetch all posts randomly including font, bg_color, font_size
     $sql = "
         SELECT 
             p.post_id,
@@ -19,6 +19,9 @@ try {
             p.category,
             p.post_file_url,
             p.created_at,
+            p.font,
+            p.bg_color,
+            p.font_size,
             u.user_type,
             COALESCE(d.display_name, c.display_name, u.username) AS actual_name,
             u.profile_pic_url AS actual_profile_pic
@@ -55,6 +58,9 @@ try {
                 "created_at" => $row['created_at'],
                 "author_name" => $author_name,
                 "author_profile_pic" => $author_profile_pic,
+                "font" => $row['font'] ?? "Arial",
+                "bg_color" => $row['bg_color'] ?? "#ffffff",
+                "font_size" => $row['font_size'] ? (int)$row['font_size'] : 16
             ];
         }
     }
